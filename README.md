@@ -47,9 +47,6 @@ Also, various dataframes are saved as .csv in main folders as the running of mai
 * `requirements.txt `
 > List of required packages which can be used to pip install them.
 
-* `DataImport_final.ipynb`
-> Data downloading & cleaning cleaning of the stock price data and constructing a data folder where cleaned files are put inside
-
 * `main_final.ipynb `
 > This file contains the code for running the simulations and does the analysis on simulation results
 
