@@ -288,16 +288,14 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     # Process edges with zero time to maturity
     for u, v, attr in G.edges(data=True):
-        time_to_maturity = attr.get('time_to_maturity', 0)  # Assuming default time_to_maturity is 1 if not present
+        time_to_maturity = attr.get('time_to_maturity', 1)  # Assuming default time_to_maturity is 1 if not present
 
         if time_to_maturity == 0:
             exposure_u = G.nodes[u]['exposure']
-            exposure_v = G.nodes[v]['exposure']
             weight = attr['weight']
 
             # Adjust exposures considering the directionality
-            G.nodes[u]['exposure'] = exposure_u - weight
-            G.nodes[v]['exposure'] = exposure_v + weight
+            G.nodes[u]['exposure'] = exposure_u + weight
 
             # Mark the edge for removal
             edges_to_remove.append((u, v))
@@ -863,3 +861,86 @@ def calculate_std_diff(timeseries):
     float: The standard deviation of the first-order differences of the time series.
     """
     return np.std(np.diff(timeseries))
+
+
+
+# Test check_bankruptcy_and_update_network to verify that the exposure of neighbour node has been updated as expected after one node is bankrupt
+def test_bankruptcy_and_exposure_update():
+    # Create a small test graph
+    G = nx.DiGraph()
+    G.add_node(0, exposure=20)  # Add a node that will go bankrupt
+    G.add_node(1, exposure=4)   # Add a node connected to the bankrupt node
+    G.add_node(2, exposure=-2)  # Add another unrelated node
+    G.add_edge(1, 0, weight=4)  # Link between bankrupt node and node 1
+    G.add_edge(0, 1, weight=-4) # Link in the opposite direction
+    # Define test parameters
+    threshold_v = 10  # Bankruptcy threshold
+    delta_price = 1.5 # Price fluctuation
+
+    # Apply the function
+    G, num_bankruptcies = check_bankruptcy_and_update_network(G, threshold_v, delta_price)
+
+    # Verify that the bankrupt node has been removed
+    assert 0 not in G
+
+    # Verify that the exposure of node 1 has been updated as expected
+    expected_exposure = 4 + 4  # Original exposure + weight of the bankrupt node
+    print('expected_exposure:', expected_exposure)
+    actual_exposure = G.nodes[1]['exposure']
+    print('actual_exposure:', actual_exposure)
+    assert actual_exposure == expected_exposure
+
+    # Verify the number of bankruptcies
+    assert num_bankruptcies == 1
+
+    # Verify that other nodes are unaffected
+    assert G.nodes[2]['exposure'] == -2
+
+    print("All tests passed")
+
+# Run the test function
+test_bankruptcy_and_exposure_update()
+
+
+
+
+
+# Test check edge maturity turns to be 0 the exposure of node has been updated as expected
+def test_maturity_0_and_exposure_update():
+    # Create a small test graph
+    G = nx.DiGraph()
+    G.add_node(0, exposure=5)  # Add a node that will go bankrupt
+    G.add_node(1, exposure=4)   # Add a node connected to the bankrupt node
+    G.add_node(2, exposure=-2)  # Add another unrelated node
+    G.add_edge(1, 0, weight=4, time_to_maturity=0)  # Link between bankrupt node and node 1
+    G.add_edge(0, 1, weight=-4, time_to_maturity=0) # Link in the opposite direction
+    # Define test parameters
+    threshold_v = 15  # Bankruptcy threshold
+    delta_price = 1.5 # Price fluctuation
+
+    # Apply the function
+    G, num_bankruptcies = check_bankruptcy_and_update_network(G, threshold_v, delta_price)
+
+
+    # Verify that the exposure of node 0&1 has been updated as expected
+    expected_exposure = 5 + (-4)  # Original exposure + weight of the bankrupt node
+    print('expected_exposure_node0:', expected_exposure)
+    actual_exposure = G.nodes[0]['exposure']
+    print('actual_exposure_node0:', actual_exposure)
+    assert actual_exposure == expected_exposure   
+    
+    
+    expected_exposure = 4 + 4  # Original exposure + weight of the bankrupt node
+    print('expected_exposure_node1:', expected_exposure)
+    actual_exposure = G.nodes[1]['exposure']
+    print('actual_exposure_node1:', actual_exposure)
+    assert actual_exposure == expected_exposure
+
+
+    # Verify that other nodes are unaffected
+    assert G.nodes[2]['exposure'] == -2
+
+    print("All tests passed")
+
+# Run the test function
+test_maturity_0_and_exposure_update()
