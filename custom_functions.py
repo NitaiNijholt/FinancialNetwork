@@ -153,7 +153,7 @@ def simulate_brownian_motion_one_step(exposures, delta_t, sigma):
     updated_exposures = exposures + increments
     return updated_exposures
 
-def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'devide exposure equally', max_one_connection_per_node=True, swap_exposure_threshold=0, time_to_maturity=0) -> nx.DiGraph:
+def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'devide exposure equally', max_one_connection_per_node=True, swap_exposure_threshold=0, time_to_maturity=0, link_threshold_mode = 'hard cutoff') -> nx.DiGraph:
     """
     This function forms links between nodes in a directed graph based on the nodes' exposure values and a specified linking threshold.
     It also updates the exposure values of these nodes according to the linking mode.
@@ -190,10 +190,15 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
                 for j in G.nodes:
                     if not G.nodes[j]['connected_this_timestep'] and i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
                         sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
-
-                        if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and ((np.abs(sum_of_exposures) < linking_threshold)):
-                            closest_sum = sum_of_exposures
-                            closest_node = j
+                        
+                        if link_threshold_mode == 'hard cutoff':
+                            if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and (np.abs(sum_of_exposures) < linking_threshold):
+                                closest_sum = sum_of_exposures
+                                closest_node = j
+                        if link_threshold_mode == 'logistic':
+                            if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and (logistic_threshold_probability(np.abs(sum_of_exposures), linking_threshold) > np.random.random()):
+                                closest_sum = sum_of_exposures
+                                closest_node = j
 
         else:
                 for j in G.nodes:
@@ -339,7 +344,7 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     return G, num_bankruptcies
 
-def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0):
+def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0, link_threshold_mode = 'hard cutoff'):
     """
     Simulates a financial network over a specified number of time steps. 
 
@@ -404,7 +409,7 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
 
         # Form links and update exposures based on the current state
         # graph = form_links_and_update_exposures(graph, linking_threshold, swap_exposure_threshold)
-        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity)
+        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity, swap_exposure_threshold=swap_exposure_threshold, link_threshold_mode = link_threshold_mode)
 
 
         # Check for bankruptcy and update the network
@@ -437,6 +442,8 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
         node_population_over_time[step] = len(graph.nodes())
 
 
+
+        
     return graph, abs_exposures_over_time_summed, num_bankrupt_agents_over_time, simulated_prices, links_over_time, total_abs_exposure_in_edge_weights, node_population_over_time
 
         
@@ -550,7 +557,7 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
 
 
 # Fit the data to a power-law distribution
-def fit_power_law(data: np.ndarray) -> Tuple[float, float]:
+def fit_power_law(data: np.ndarray, percentage_of_tail = 10) -> Tuple[float, float]:
     """
     Fit a given dataset to a power-law distribution, plot the Probability Density Function (PDF) 
     for both the empirical data and the power-law fit, and compare it with an exponential distribution.
@@ -589,6 +596,9 @@ def fit_power_law(data: np.ndarray) -> Tuple[float, float]:
     # Conclusion based on the loglikelihood ratio and p-value
     if R > 0 and p < 0.05:
         print("The data follows a power-law distribution better than an exponential distribution.")
+        print("\n")
+
+        print(f"According to Hills estimate looking at {percentage_of_tail} of values in the tail of the distribution, the alpha estimate is is:", hill_estimator(data = data, percentage_of_tail = percentage_of_tail))
     else:
         print("There is not sufficient evidence to conclude that the data follows a power-law distribution better than an exponential distribution.")
 
@@ -822,22 +832,22 @@ def save_results_to_csv(run_results, combination):
 
 
     def save_all_results_to_csv(all_results):
-    # Create a DataFrame to store all results
-    all_df = pd.DataFrame()
+        # Create a DataFrame to store all results
+        all_df = pd.DataFrame()
 
-    for combination, run_results in all_results.items():
-        for i, result in enumerate(run_results):
-            row = {'Combination': combination, 'Run': i + 1}
-            row.update({key: str(value) for key, value in result.items() if key != 'graph'})  # Excluding graph object
-            all_df = all_df.append(row, ignore_index=True)
+        for combination, run_results in all_results.items():
+            for i, result in enumerate(run_results):
+                row = {'Combination': combination, 'Run': i + 1}
+                row.update({key: str(value) for key, value in result.items() if key != 'graph'})  # Excluding graph object
+                all_df = all_df.append(row, ignore_index=True)
 
-    # Create a unique filename
-    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-    filename = "simulation_results_" + timestamp + ".csv"
+        # Create a unique filename
+        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        filename = "simulation_results_" + timestamp + ".csv"
 
-    # Save to CSV
-    all_df.to_csv(filename, index=False)
-    print(f"Saved all results to {filename}")
+        # Save to CSV
+        all_df.to_csv(filename, index=False)
+        print(f"Saved all results to {filename}")
 
 
 
