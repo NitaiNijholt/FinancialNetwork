@@ -102,16 +102,12 @@ def create_directional_graph(N_Nodes, edges=None):
     # Add nodes
     G.add_nodes_from(range(N_Nodes))
 
-    # Initialize 'exposure' for each node
+    # Initialize 'exposure' for each node and 'connected_this_timestep' to False
     exposures = generate_exposures(N_Nodes)
     for node, exposure in zip(G.nodes(), exposures):
         G.nodes[node]['exposure'] = exposure
-
-
-    # Initialize 'connected_this_timestep' flag for each node
-    exposures = generate_exposures(N_Nodes)
-    for node, exposure in zip(G.nodes(), exposures):
         G.nodes[node]['connected_this_timestep'] = False
+
 
     # Add edges if provided
     if edges is not None:
@@ -158,12 +154,7 @@ def simulate_brownian_motion_one_step(exposures, delta_t, sigma):
     return updated_exposures
 
 
-
-
-
-
-
-def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'divide exposure equally', max_1_connection_per_timestep = False) -> nx.DiGraph:
+def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'devide exposure equally', max_one_connection_per_node=True, swap_exposure_threshold = 0) -> nx.DiGraph:
     """
     This function forms links between nodes in a directed graph based on the nodes' exposure values and a specified linking threshold.
     It also updates the exposure values of these nodes according to the linking mode.
@@ -172,13 +163,13 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
     This means that after linking, each node will have an exposure value equal to the average of their previous exposures.
     The weight of the link created is based on the change in exposure of the nodes as a result of this process.
 
-    In 'divide exposure singly' mode, one node's exposure is set to zero and the other node receives the entire sum of both exposures.
+    In 'devide exposure singly' mode, one node's exposure is set to zero and the other node receives the entire sum of both exposures.
     This mode is not detailed in the docstring as it is less frequently used.
 
     Parameters:
     G (nx.DiGraph): The graph to which the nodes belong. Each node should have an 'exposure' and a 'connected_this_timestep' attribute.
     linking_threshold (float): The threshold below which the absolute sum of exposures will trigger a link formation.
-    mode (str): The mode of exposure division. Defaults to 'divide exposure equally'.
+    mode (str): The mode of exposure division. Defaults to 'devide exposure equally'.
 
     Returns:
     nx.DiGraph: The updated graph with new links and updated exposures.
@@ -189,12 +180,12 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
 
 
 
-
     for i in G.nodes:
         closest_sum = np.inf
         closest_node = None
 
-        if max_1_connection_per_timestep == True:
+
+        if max_one_connection_per_node:
 
             if not G.nodes[i]['connected_this_timestep']:
                 for j in G.nodes:
@@ -205,65 +196,63 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
                             closest_sum = sum_of_exposures
                             closest_node = j
 
-        if max_1_connection_per_timestep == False:
+        else:
+                for j in G.nodes:
+                    if i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
+                        sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
 
-            for j in G.nodes:
-                if i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
-                    sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
-
-                    if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and ((np.abs(sum_of_exposures) < linking_threshold)):
-                        closest_sum = sum_of_exposures
-                        closest_node = j
-            
+                        if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and ((np.abs(sum_of_exposures) < linking_threshold)):
+                            closest_sum = sum_of_exposures
+                            closest_node = j
 
 
+    
 
-            if closest_node:
+        if closest_node and (G.nodes[i]['exposure'] > swap_exposure_threshold):
 
-                # deviding the exposure singly means one node gets 0 exposure and the other node gets the remaining exposure
-                if mode == 'divide exposure singly':
+            # deviding the exposure singly means one node gets 0 exposure and the other node gets the remaining exposure
+            if mode == 'devide exposure singly':
 
-                    # Calculate hedge value based on the smaller absolute exposure of the two nodes
-                    hedge_value = min(abs(G.nodes[i]['exposure']), abs(G.nodes[closest_node]['exposure']))
+                # Calculate hedge value based on the smaller absolute exposure of the two nodes
+                hedge_value = min(abs(G.nodes[i]['exposure']), abs(G.nodes[closest_node]['exposure']))
 
-                    # Determine the sign of the weight for each edge based on the exposure of the originating node
-                    weight_i_to_closest_node = np.sign(G.nodes[i]['exposure']) * hedge_value
-                    weight_closest_node_to_i = np.sign(G.nodes[closest_node]['exposure']) * hedge_value
+                # Determine the sign of the weight for each edge based on the exposure of the originating node
+                weight_i_to_closest_node = np.sign(G.nodes[i]['exposure']) * hedge_value
+                weight_closest_node_to_i = np.sign(G.nodes[closest_node]['exposure']) * hedge_value
 
-                    # Create edges with weights having signs corresponding to the exposure of the originating node
-                    G.add_edge(i, closest_node, weight=weight_i_to_closest_node)
-                    G.add_edge(closest_node, i, weight=weight_closest_node_to_i)
-                    G.nodes[i]['exposure'] -= weight_i_to_closest_node
-                    G.nodes[closest_node]['exposure'] -= weight_closest_node_to_i
-                    
-                    
-                    # Setting the connection flag for both nodes
-                    G.nodes[i]['connected_this_timestep'] = True
-                    G.nodes[closest_node]['connected_this_timestep'] = True
+                # Create edges with weights having signs corresponding to the exposure of the originating node
+                G.add_edge(i, closest_node, weight=weight_i_to_closest_node)
+                G.add_edge(closest_node, i, weight=weight_closest_node_to_i)
+                G.nodes[i]['exposure'] -= weight_i_to_closest_node
+                G.nodes[closest_node]['exposure'] -= weight_closest_node_to_i
+                
+                
+                # Setting the connection flag for both nodes
+                G.nodes[i]['connected_this_timestep'] = True
+                G.nodes[closest_node]['connected_this_timestep'] = True
 
 
-                # deviding the exposure equally means that the sum of the exposure of both nodes is evenly distributed to each node.
-                if mode == 'divide exposure equally':
-                    # Calculate the average exposure to evenly divide between the two nodes
-                    average_exposure = (G.nodes[closest_node]['exposure'] + G.nodes[i]['exposure']) / 2
-                    # Determine the weight of the link based on the change in exposure
-                    weight = G.nodes[i]['exposure'] - average_exposure
-                    # Update exposures and add weighted edges
-                    G.nodes[i]['exposure'] = average_exposure
-                    G.nodes[closest_node]['exposure'] = average_exposure
-                    G.add_edge(i, closest_node, weight=weight)
-                    G.add_edge(closest_node, i, weight=-weight)
-                    
-                    # Mark both nodes as connected for this timestep
-                    G.nodes[i]['connected_this_timestep'] = True
-                    G.nodes[closest_node]['connected_this_timestep'] = True
-                    
-        
-        # Resetting the flag for the next timestep
-        if max_1_connection_per_timestep:
-            for node in G.nodes:
-                G.nodes[node]['connected_this_timestep'] = False
-                    
+            # deviding the exposure equally means that the sum of the exposure of both nodes is evenly distributed to each node.
+            if mode == 'devide exposure equally':
+                # Calculate the average exposure to evenly divide between the two nodes
+                average_exposure = (G.nodes[closest_node]['exposure'] + G.nodes[i]['exposure']) / 2
+                # Determine the weight of the link based on the change in exposure
+                weight = G.nodes[i]['exposure'] - average_exposure
+                # Update exposures and add weighted edges
+                G.nodes[i]['exposure'] = average_exposure
+                G.nodes[closest_node]['exposure'] = average_exposure
+                G.add_edge(i, closest_node, weight=weight)
+                G.add_edge(closest_node, i, weight=-weight)
+                
+                # Mark both nodes as connected for this timestep
+                G.nodes[i]['connected_this_timestep'] = True
+                G.nodes[closest_node]['connected_this_timestep'] = True
+                
+                
+    # Resetting the flag for the next timestep
+    for node in G.nodes:
+        G.nodes[node]['connected_this_timestep'] = False
+                
 
     return G
 
@@ -312,8 +301,7 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     return G, num_bankruptcies
 
-
-def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, print_timestep=True):
+def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True):
     """
     Simulates a financial network over a specified number of time steps. 
 
@@ -377,16 +365,26 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
             graph.nodes[i]['exposure'] += np.random.normal(0, sigma_exposure_node * delta_t)
 
         # Form links and update exposures based on the current state
+        # graph = form_links_and_update_exposures(graph, linking_threshold, swap_exposure_threshold)
         graph = form_links_and_update_exposures(graph, linking_threshold)
+
+        
 
         # Check for bankruptcy and update the network
         graph, bankruptcies_this_step = check_bankruptcy_and_update_network(graph, threshold_v, delta_price_array[step-1])
 
+
+        
+
+
         # Add the number of bankruptcies this step to the total
         num_bankrupt_agents_total += bankruptcies_this_step
+        
 
         # Update the number of bankruptcies over time
         num_bankrupt_agents_over_time[step] = num_bankrupt_agents_total
+
+
 
         # Update the number of links over time
         links_over_time[step] = graph.number_of_edges()
