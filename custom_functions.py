@@ -153,8 +153,7 @@ def simulate_brownian_motion_one_step(exposures, delta_t, sigma):
     updated_exposures = exposures + increments
     return updated_exposures
 
-
-def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'devide exposure equally', max_one_connection_per_node=True, swap_exposure_threshold = 0) -> nx.DiGraph:
+def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'devide exposure equally', max_one_connection_per_node=True, swap_exposure_threshold=0, time_to_maturity=0) -> nx.DiGraph:
     """
     This function forms links between nodes in a directed graph based on the nodes' exposure values and a specified linking threshold.
     It also updates the exposure values of these nodes according to the linking mode.
@@ -221,8 +220,8 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
                 weight_closest_node_to_i = np.sign(G.nodes[closest_node]['exposure']) * hedge_value
 
                 # Create edges with weights having signs corresponding to the exposure of the originating node
-                G.add_edge(i, closest_node, weight=weight_i_to_closest_node)
-                G.add_edge(closest_node, i, weight=weight_closest_node_to_i)
+                G.add_edge(i, closest_node, weight=weight_i_to_closest_node, time_to_maturity=time_to_maturity)
+                G.add_edge(closest_node, i, weight=weight_closest_node_to_i, time_to_maturity=time_to_maturity)
                 G.nodes[i]['exposure'] -= weight_i_to_closest_node
                 G.nodes[closest_node]['exposure'] -= weight_closest_node_to_i
                 
@@ -230,6 +229,9 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
                 # Setting the connection flag for both nodes
                 G.nodes[i]['connected_this_timestep'] = True
                 G.nodes[closest_node]['connected_this_timestep'] = True
+
+
+
 
 
             # deviding the exposure equally means that the sum of the exposure of both nodes is evenly distributed to each node.
@@ -241,21 +243,25 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
                 # Update exposures and add weighted edges
                 G.nodes[i]['exposure'] = average_exposure
                 G.nodes[closest_node]['exposure'] = average_exposure
-                G.add_edge(i, closest_node, weight=weight)
-                G.add_edge(closest_node, i, weight=-weight)
+                G.add_edge(i, closest_node, weight=weight, time_to_maturity=time_to_maturity)
+                G.add_edge(closest_node, i, weight=-weight, time_to_maturity=time_to_maturity)
                 
-                # Mark both nodes as connected for this timestep
+                # Setting the connection flag for both nodes
                 G.nodes[i]['connected_this_timestep'] = True
                 G.nodes[closest_node]['connected_this_timestep'] = True
+
                 
                 
     # Resetting the flag for the next timestep
-    for node in G.nodes:
-        G.nodes[node]['connected_this_timestep'] = False
+                
+    if max_one_connection_per_node:
+        for node in G.nodes:
+            G.nodes[node]['connected_this_timestep'] = False
+
+
                 
 
     return G
-
 
 
 def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_node_mode=True):
@@ -272,6 +278,38 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
     """
     bankrupt_nodes = set()
     num_bankruptcies = 0
+    edges_to_remove = []
+    edges_to_decrement = []
+
+    # Process edges with zero time to maturity
+    for u, v, attr in G.edges(data=True):
+        time_to_maturity = attr.get('time_to_maturity', 0)  # Assuming default time_to_maturity is 1 if not present
+
+        if time_to_maturity == 0:
+            exposure_u = G.nodes[u]['exposure']
+            exposure_v = G.nodes[v]['exposure']
+            weight = attr['weight']
+
+            # Adjust exposures considering the directionality
+            G.nodes[u]['exposure'] = exposure_u - weight
+            G.nodes[v]['exposure'] = exposure_v + weight
+
+            # Mark the edge for removal
+            edges_to_remove.append((u, v))
+        else:
+            # Mark the edge for decrementing time to maturity
+            edges_to_decrement.append((u, v, time_to_maturity))
+
+    # Remove marked edges
+    for u, v in edges_to_remove:
+        G.remove_edge(u, v)
+        
+
+    # Decrement time to maturity for marked edges
+    for u, v, time_to_maturity in edges_to_decrement:
+        G.edges[u, v]['time_to_maturity'] = max(0, time_to_maturity - 1)
+
+
 
     # Update exposures based on volatility and identify bankrupt nodes
     for node in G.nodes():
@@ -301,7 +339,7 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     return G, num_bankruptcies
 
-def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True):
+def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0):
     """
     Simulates a financial network over a specified number of time steps. 
 
@@ -366,15 +404,12 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
 
         # Form links and update exposures based on the current state
         # graph = form_links_and_update_exposures(graph, linking_threshold, swap_exposure_threshold)
-        graph = form_links_and_update_exposures(graph, linking_threshold)
+        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity)
 
-        
 
         # Check for bankruptcy and update the network
         graph, bankruptcies_this_step = check_bankruptcy_and_update_network(graph, threshold_v, delta_price_array[step-1])
 
-
-        
 
 
         # Add the number of bankruptcies this step to the total
@@ -402,9 +437,9 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
         node_population_over_time[step] = len(graph.nodes())
 
 
-        
-
     return graph, abs_exposures_over_time_summed, num_bankrupt_agents_over_time, simulated_prices, links_over_time, total_abs_exposure_in_edge_weights, node_population_over_time
+
+        
 
 
 def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list):
@@ -512,105 +547,7 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
     return results_dict
 
 
-def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, print_timestep=True):
-    """
-    Simulates a financial network over a specified number of time steps. 
 
-    The simulation includes dynamic changes in agent exposures and inter-agent connections, 
-    influenced by a stochastic process (Brownian motion). The network evolves through
-    the formation of new links and the possibility of bankruptcy among agents.
-
-    Parameters:
-    - N_agents (int): Number of agents in the network.
-    - num_steps (int): Number of time steps for the simulation.
-    - delta_t (float): Time step size for Brownian motion.
-    - sigma_exposure_node (float): Standard deviation for exposure changes of each agent.
-    - sigma_intrestrate (float): Standard deviation for interest rate changes in Brownian motion.
-    - threshold_v (float): Threshold value for bankruptcy determination.
-    - linking_threshold (float): Threshold for forming new links between agents.
-    - print_timestep (bool, optional): Flag to print the current time step (default is True).
-
-    Returns:
-    tuple: A tuple containing:
-        - The final graph of the network.
-        - Array of summed absolute exposures over time.
-        - Array of the cumulative number of bankrupt agents over time.
-        - Array of simulated prices (interest rates).
-        - Array of the number of links over time.
-        - Array of total absolute exposure in edge weights over time.
-        - Array of node population over time.
-    """
-    # Initialize graph with nodes having exposure attributes
-    graph = create_directional_graph(N_agents)
-
-
-
-    # Initialize 'connected_this_timestep' flag to false for each node
-    for i in range(N_agents):
-        graph.nodes[i]['connected_this_step'] = False
-    
-
-
-    # Simulate interest rate as Brownian motion
-    simulated_prices = brownian_motion(num_steps, delta_t, sigma_intrestrate)
-
-    # Calculate price movement difference for each step
-    delta_price_array = calculate_first_order_differences(simulated_prices)
-
-    # Arrays to track metrics over time
-    num_bankrupt_agents_total = 0
-    num_bankrupt_agents_over_time = np.zeros(num_steps)
-    links_over_time = np.zeros(num_steps)
-    abs_exposures_over_time_summed = np.zeros(num_steps)
-    total_abs_exposure_in_edge_weights = np.zeros(num_steps)
-    node_population_over_time = np.zeros(num_steps)
-
-    # Simulate over time
-    for step in range(num_steps):
-
-        if print_timestep:
-            print('timestep', step)
-
-        # Update exposures based on Brownian motion
-        for i in graph.nodes():
-            graph.nodes[i]['exposure'] += np.random.normal(0, sigma_exposure_node * delta_t)
-
-        # Form links and update exposures based on the current state
-        graph = form_links_and_update_exposures(graph, linking_threshold)
-
-        # Check for bankruptcy and update the network
-        graph, bankruptcies_this_step = check_bankruptcy_and_update_network(graph, threshold_v, delta_price_array[step-1])
-
-
-
-        # Add the number of bankruptcies this step to the total
-        num_bankrupt_agents_total += bankruptcies_this_step
-        
-
-        # Update the number of bankruptcies over time
-        num_bankrupt_agents_over_time[step] = num_bankrupt_agents_total
-
-
-
-        # Update the number of links over time
-        links_over_time[step] = graph.number_of_edges()
-
-        # Update the sum of absolute exposures over time
-        abs_exposures_over_time_summed[step] = np.sum(np.abs(np.array(list(nx.get_node_attributes(graph, 'exposure')))))
-
-        # Update exposures over time
-        abs_exposure_in_edge_weights = sum_absolute_edge_weights(graph)
-
-        total_abs_exposure_in_edge_weights[step] = abs_exposure_in_edge_weights
-
-        # Update node population over time
-
-        node_population_over_time[step] = len(graph.nodes())
-
-
-        
-
-    return graph, abs_exposures_over_time_summed, num_bankrupt_agents_over_time, simulated_prices, links_over_time, total_abs_exposure_in_edge_weights, node_population_over_time
 
 # Fit the data to a power-law distribution
 def fit_power_law(data: np.ndarray) -> Tuple[float, float]:
