@@ -229,7 +229,7 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
 
     
 
-        if closest_node and (G.nodes[i]['exposure'] > swap_exposure_threshold):
+        if closest_node and (np.abs(G.nodes[i]['exposure'])) > swap_exposure_threshold):
 
             # deviding the exposure singly means one node gets 0 exposure and the other node gets the remaining exposure
             if mode == 'devide exposure singly':
