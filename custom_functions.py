@@ -16,6 +16,7 @@ import pandas as pd
 import powerlaw
 from tqdm import tqdm
 from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.patches import FancyArrowPatch
 
 def calculate_first_order_differences(array):
     """
@@ -966,3 +967,69 @@ def test_maturity_0_and_exposure_update():
 
     print("All tests passed")
 
+
+
+
+def draw_graph_with_edge_weights(G, pos=None, node_size=400, node_color='skyblue', font_size=10,
+                                 font_weight='bold', arrowstyle='-|>', arrowsize=30, width=2,
+                                 edge_precision=3, offset=0.1, label_offset_x=0.02, label_offset_y=0.05):
+    """
+    Draw a directed graph with edge weights rounded to a specified precision and display weights for bidirectional edges.
+    The weight labels will be placed above or below the edge based on the direction.
+
+    Parameters:
+    G (nx.DiGraph): The directed graph to draw.
+    pos (dict): Position coordinates for nodes for specific layout.
+    node_size (int): Size of nodes.
+    node_color (str): Color of nodes.
+    font_size (int): Font size for node labels.
+    font_weight (str): Font weight for node labels.
+    arrowstyle (str): Style of the arrows.
+    arrowsize (int): Size of the arrows.
+    width (int): Width of edges.
+    edge_precision (int): Decimal precision for edge weights.
+    offset (float): Offset for edge labels to prevent overlap.
+    label_offset_x (float): Horizontal offset for labels in bidirectional edges.
+    label_offset_y (float): Vertical offset for labels in bidirectional edges.
+
+    Returns:
+    None: Draws the graph with matplotlib.
+    """
+
+    if pos is None:
+        pos = nx.spring_layout(G)  # positions for all nodes
+
+    plt.figure(figsize=(12, 8))
+    ax = plt.gca()
+    nx.draw_networkx_nodes(G, pos, node_size=node_size, node_color=node_color)
+    nx.draw_networkx_labels(G, pos, font_size=font_size, font_weight=font_weight)
+
+    # Draw edges with arrows
+    for edge in G.edges():
+        source, target = edge
+        rad = 0.1
+        arrow = FancyArrowPatch(pos[source], pos[target], arrowstyle=arrowstyle,
+                                connectionstyle=f'arc3,rad={rad}', mutation_scale=arrowsize,
+                                lw=width, color='black')
+        ax.add_patch(arrow)
+
+    # Draw edge weights with precision and apply offsets
+    for edge in G.edges():
+        source, target = edge
+        weight = G[source][target]['weight']
+        x_offset = (pos[target][0] - pos[source][0]) * offset
+        y_offset = (pos[target][1] - pos[source][1]) * offset
+        text_pos = ((pos[source][0] + pos[target][0]) / 2 + x_offset,
+                    (pos[source][1] + pos[target][1]) / 2 + y_offset)
+        
+        # Adjust label position based on the direction of the edge
+        if source < target:
+            text_pos = (text_pos[0], text_pos[1] + label_offset_y)
+        else:
+            text_pos = (text_pos[0], text_pos[1] - label_offset_y)
+        
+        ax.text(*text_pos, s=f'{weight:.{edge_precision}f}', horizontalalignment='center',
+                verticalalignment='center', fontsize=font_size, fontweight=font_weight)
+
+    plt.axis('off')
+    plt.show()
