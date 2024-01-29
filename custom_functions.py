@@ -10,12 +10,12 @@ import datetime
 import pickle
 import argparse
 import itertools
-from typing import List, Tuple
+from typing import Dict, List, Any, Tuple
 import doctest
 import pandas as pd
 import powerlaw
 from tqdm import tqdm
-
+from mpl_toolkits.mplot3d import Axes3D
 
 def calculate_first_order_differences(array):
     """
@@ -116,6 +116,22 @@ def create_directional_graph(N_Nodes, edges=None):
 
     return G
 
+
+def logistic_threshold_probability(x, threshold):
+    """
+    Compute the logistic threshold probability with fixed 'a' and 'b' values.
+
+    Parameters:
+    x (float): The value at which to compute the probability.
+    threshold (float): The threshold value for scaling.
+
+    Returns:
+    float: The logistic threshold probability.
+    """
+    a = 1
+    b = 5
+    scaled_x = x * (10 / threshold)
+    return 1 - 1 / (1 + np.exp(-a * (scaled_x - b)))
 
 def sum_absolute_edge_weights(graph):
     """
@@ -288,14 +304,16 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     # Process edges with zero time to maturity
     for u, v, attr in G.edges(data=True):
-        time_to_maturity = attr.get('time_to_maturity', 1)  # Assuming default time_to_maturity is 1 if not present
+        time_to_maturity = attr.get('time_to_maturity', 0)  # Assuming default time_to_maturity is 1 if not present
 
         if time_to_maturity == 0:
             exposure_u = G.nodes[u]['exposure']
+            exposure_v = G.nodes[v]['exposure']
             weight = attr['weight']
 
             # Adjust exposures considering the directionality
-            G.nodes[u]['exposure'] = exposure_u + weight
+            G.nodes[u]['exposure'] = exposure_u - weight
+            G.nodes[v]['exposure'] = exposure_v + weight
 
             # Mark the edge for removal
             edges_to_remove.append((u, v))
@@ -342,7 +360,7 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     return G, num_bankruptcies
 
-def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0, link_threshold_mode = 'hard cutoff'):
+def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0, link_threshold_mode = 'hard cutoff'):
     """
     Simulates a financial network over a specified number of time steps. 
 
@@ -382,21 +400,21 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
 
 
     # Simulate interest rate as Brownian motion
-    simulated_prices = brownian_motion(num_steps, delta_t, sigma_intrestrate)
+    simulated_prices = brownian_motion(time_steps, delta_t, sigma_intrestrate)
 
     # Calculate price movement difference for each step
     delta_price_array = calculate_first_order_differences(simulated_prices)
 
     # Arrays to track metrics over time
     num_bankrupt_agents_total = 0
-    num_bankrupt_agents_over_time = np.zeros(num_steps)
-    links_over_time = np.zeros(num_steps)
-    abs_exposures_over_time_summed = np.zeros(num_steps)
-    total_abs_exposure_in_edge_weights = np.zeros(num_steps)
-    node_population_over_time = np.zeros(num_steps)
+    num_bankrupt_agents_over_time = np.zeros(time_steps)
+    links_over_time = np.zeros(time_steps)
+    abs_exposures_over_time_summed = np.zeros(time_steps)
+    total_abs_exposure_in_edge_weights = np.zeros(time_steps)
+    node_population_over_time = np.zeros(time_steps)
 
     # Simulate over time
-    for step in range(num_steps):
+    for step in range(time_steps):
 
         if print_timestep:
             print('timestep', step)
@@ -413,16 +431,11 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
         # Check for bankruptcy and update the network
         graph, bankruptcies_this_step = check_bankruptcy_and_update_network(graph, threshold_v, delta_price_array[step-1])
 
-
-
         # Add the number of bankruptcies this step to the total
         num_bankrupt_agents_total += bankruptcies_this_step
-        
 
         # Update the number of bankruptcies over time
         num_bankrupt_agents_over_time[step] = num_bankrupt_agents_total
-
-
 
         # Update the number of links over time
         links_over_time[step] = graph.number_of_edges()
@@ -433,21 +446,19 @@ def financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_nod
         # Update exposures over time
         abs_exposure_in_edge_weights = sum_absolute_edge_weights(graph)
 
+        
+        # Update the sum of absolute exposure in edge weights over time
         total_abs_exposure_in_edge_weights[step] = abs_exposure_in_edge_weights
 
         # Update node population over time
-
         node_population_over_time[step] = len(graph.nodes())
 
-
-
-        
     return graph, abs_exposures_over_time_summed, num_bankrupt_agents_over_time, simulated_prices, links_over_time, total_abs_exposure_in_edge_weights, node_population_over_time
 
         
 
 
-def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list):
+def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list, swap_exposure_threshold_list, time_to_maturity_list, link_threshold_mode_list):
     """
     Runs multiple simulations of a financial network simulator for all combinations of given parameter lists. 
     Each simulation is run a specified number of times ('runs') for each combination of parameters.
@@ -490,10 +501,8 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
     results_dict = {}
 
     # Generate all combinations of parameters
-    param_combinations = itertools.product(N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list)
+    param_combinations = itertools.product(N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list, swap_exposure_threshold_list, time_to_maturity_list, link_threshold_mode_list)
 
-
-    
     param_combinations_list = list(param_combinations)
     total_iterations = len(param_combinations_list) * runs
 
@@ -502,13 +511,12 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
     # record start time
     start_time = time.time()
 
-
     for combination in param_combinations_list:
-        N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold = combination
+        (N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold, time_to_maturity, link_threshold_mode) = combination
         combination_results = []
 
         for _ in range(runs):
-            result = financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, print_timestep=False)
+            result = financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold, print_timestep=False, time_to_maturity=time_to_maturity, link_threshold_mode=link_threshold_mode)
             
             graph, abs_exposures_over_time_summed, num_bankrupt_agents_over_time, simulated_prices, links_over_time, total_abs_exposure_in_edge_weights, node_population_over_time = result
 
@@ -538,10 +546,8 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
             # Print progress with timestamp and estimated completion time
             print(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - Progress: {iteration}/{total_iterations} ({iteration/total_iterations*100:.2f}%) - Estimated Time Remaining: {remaining_time_formatted}")
 
-
+        # Save results of this run to CSV
         save_results_to_csv(combination_results, combination)
-
-
 
         # Store results for this combination
         results_dict[combination] = combination_results
@@ -648,7 +654,7 @@ def draw_graph_with_edge_weights(G, pos=None, node_size=700, node_color='skyblue
     
 def plot_financial_network_results(time_steps, num_bankrupt_agents_over_time, node_population_over_time, links_over_time, total_abs_exposure_in_edge_weights, exposures_over_time, simulated_prices):
 
-    time_steps = np.arange(num_steps)
+    time_steps = np.arange(time_steps)
 
      # Calculate network density for each time step
     network_density_over_time = [links_over_time[t] / (node_population_over_time[0] * (node_population_over_time[0] - 1)) for t in range(len(time_steps))]
@@ -829,23 +835,43 @@ def save_results_to_csv(run_results, combination):
     print(f"Saved results to {filename}")
 
 
-    def save_all_results_to_csv(all_results):
-        # Create a DataFrame to store all results
-        all_df = pd.DataFrame()
+    
+def save_all_results_to_csv(all_results: Dict[Any, List[Dict[str, Any]]]) -> None:
+    """
+    Saves a dictionary of simulation results to a CSV file.
 
-        for combination, run_results in all_results.items():
-            for i, result in enumerate(run_results):
-                row = {'Combination': combination, 'Run': i + 1}
-                row.update({key: str(value) for key, value in result.items() if key != 'graph'})  # Excluding graph object
-                all_df = all_df.append(row, ignore_index=True)
+    The function iterates over a dictionary where each key-value pair represents a unique
+    combination of parameters and their corresponding list of results. Each result is a dictionary
+    excluding any graph objects. The results are saved in a CSV file with a unique timestamp in the filename.
 
-        # Create a unique filename
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-        filename = "simulation_results_" + timestamp + ".csv"
+    Parameters:
+    all_results (Dict[Any, List[Dict[str, Any]]]): A dictionary where each key is a combination of
+                                                   parameters and each value is a list of result dictionaries.
 
-        # Save to CSV
-        all_df.to_csv(filename, index=False)
-        print(f"Saved all results to {filename}")
+    Returns:
+    None: The function outputs a CSV file and prints the filename.
+    """
+
+    # List to store all result rows
+    rows = []
+
+    for combination, run_results in all_results.items():
+        for i, result in enumerate(run_results):
+            # Create a row dictionary, excluding the 'graph' key
+            row = {'Combination': combination, 'Run': i + 1}
+            row.update({key: str(value) for key, value in result.items() if key != 'graph'})
+            rows.append(row)
+
+    # Convert list of dictionaries to DataFrame
+    all_df = pd.DataFrame(rows)
+
+    # Create a unique filename with timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"simulation_results_{timestamp}.csv"
+
+    # Save DataFrame to CSV
+    all_df.to_csv(filename, index=False)
+    print(f"Saved all results to {filename}")
 
 
 
@@ -864,8 +890,9 @@ def calculate_std_diff(timeseries):
 
 
 
-# Test check_bankruptcy_and_update_network to verify that the exposure of neighbour node has been updated as expected after one node is bankrupt
+
 def test_bankruptcy_and_exposure_update():
+    """# Test check_bankruptcy_and_update_network to verify that the exposure of neighbour node has been updated as expected after one node is bankrupt"""
     # Create a small test graph
     G = nx.DiGraph()
     G.add_node(0, exposure=20)  # Add a node that will go bankrupt
@@ -898,15 +925,12 @@ def test_bankruptcy_and_exposure_update():
 
     print("All tests passed")
 
-# Run the test function
-test_bankruptcy_and_exposure_update()
 
 
 
 
-
-# Test check edge maturity turns to be 0 the exposure of node has been updated as expected
 def test_maturity_0_and_exposure_update():
+    """Test check edge maturity turns to be 0 the exposure of node has been updated as expected"""
     # Create a small test graph
     G = nx.DiGraph()
     G.add_node(0, exposure=5)  # Add a node that will go bankrupt
@@ -928,8 +952,8 @@ def test_maturity_0_and_exposure_update():
     actual_exposure = G.nodes[0]['exposure']
     print('actual_exposure_node0:', actual_exposure)
     assert actual_exposure == expected_exposure   
-    
-    
+
+
     expected_exposure = 4 + 4  # Original exposure + weight of the bankrupt node
     print('expected_exposure_node1:', expected_exposure)
     actual_exposure = G.nodes[1]['exposure']
@@ -942,5 +966,3 @@ def test_maturity_0_and_exposure_update():
 
     print("All tests passed")
 
-# Run the test function
-test_maturity_0_and_exposure_update()
