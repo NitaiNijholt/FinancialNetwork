@@ -305,16 +305,14 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     # Process edges with zero time to maturity
     for u, v, attr in G.edges(data=True):
-        time_to_maturity = attr.get('time_to_maturity', 0)  # Assuming default time_to_maturity is 1 if not present
+        time_to_maturity = attr.get('time_to_maturity', 1)  # Assuming default time_to_maturity is 1 if not present
 
         if time_to_maturity == 0:
             exposure_u = G.nodes[u]['exposure']
-            exposure_v = G.nodes[v]['exposure']
             weight = attr['weight']
 
             # Adjust exposures considering the directionality
-            G.nodes[u]['exposure'] = exposure_u - weight
-            G.nodes[v]['exposure'] = exposure_v + weight
+            G.nodes[u]['exposure'] = exposure_u + weight
 
             # Mark the edge for removal
             edges_to_remove.append((u, v))
