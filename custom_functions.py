@@ -16,7 +16,8 @@ import pandas as pd
 import powerlaw
 from tqdm import tqdm
 from mpl_toolkits.mplot3d import Axes3D
-from matplotlib.patches import FancyArrowPatch
+import random
+
 
 def calculate_first_order_differences(array):
     """
@@ -50,7 +51,7 @@ def brownian_motion(num_steps, delta_t, sigma):
     start_point = 0
 
     # Compute the Brownian motion path
-    return np.cumsum(np.insert(increments, 0, start_point)) +50
+    return np.cumsum(np.insert(increments, 0, start_point))
 
 def simulate_brownian_motion_one_step(exposures, delta_t, sigma):
     """
@@ -170,7 +171,7 @@ def simulate_brownian_motion_one_step(exposures, delta_t, sigma):
     updated_exposures = exposures + increments
     return updated_exposures
 
-def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'devide exposure equally', max_one_connection_per_node=True, swap_exposure_threshold=0, time_to_maturity=0, link_threshold_mode = 'hard cutoff') -> nx.DiGraph:
+def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'random link logic', max_one_connection_per_node=False, swap_exposure_threshold=0, time_to_maturity=0, link_threshold_mode = 'hard cutoff', link_formation_probability=0.5) -> nx.DiGraph:
     """
     This function forms links between nodes in a directed graph based on the nodes' exposure values and a specified linking threshold.
     It also updates the exposure values of these nodes according to the linking mode.
@@ -191,102 +192,154 @@ def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mod
     nx.DiGraph: The updated graph with new links and updated exposures.
     """
 
-    if linking_threshold == 0:
-        linking_threshold = sys.float_info.epsilon
-
-
-
-    for i in G.nodes:
-        closest_sum = np.inf
-        closest_node = None
-
-
+    if mode == 'random link logic':
         if max_one_connection_per_node:
+            # List of nodes with positive and negative exposure respectively
+            positive_exposure_nodes = [node for node in G.nodes if G.nodes[node]['exposure'] > 0 and not G.nodes[node]['connected_this_timestep']]
+            negative_exposure_nodes = [node for node in G.nodes if G.nodes[node]['exposure'] < 0 and not G.nodes[node]['connected_this_timestep']]
 
-            if not G.nodes[i]['connected_this_timestep']:
-                for j in G.nodes:
-                    if not G.nodes[j]['connected_this_timestep'] and i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
-                        sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
-                        
-                        if link_threshold_mode == 'hard cutoff':
-                            if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and (np.abs(sum_of_exposures) < linking_threshold):
-                                closest_sum = sum_of_exposures
-                                closest_node = j
-                        if link_threshold_mode == 'logistic':
-                            if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and (logistic_threshold_probability(np.abs(sum_of_exposures), linking_threshold) > np.random.random()):
-                                closest_sum = sum_of_exposures
-                                closest_node = j
+            # Randomly pair nodes from each list
+            random.shuffle(positive_exposure_nodes)
+            random.shuffle(negative_exposure_nodes)
 
+            for positive_node, negative_node in zip(positive_exposure_nodes, negative_exposure_nodes):
+                # Create swap only if both nodes have not connected this timestep
+                if not G.nodes[positive_node]['connected_this_timestep'] and not G.nodes[negative_node]['connected_this_timestep']:
+                    # Calculate the hedge value, which is the minimum of the absolute exposures or the swap value
+                    hedge_value = min(abs(G.nodes[positive_node]['exposure']), abs(G.nodes[negative_node]['exposure']), swap_exposure_threshold)
+                    
+                    # Create the swap
+                    G.add_edge(positive_node, negative_node, weight=hedge_value, time_to_maturity=time_to_maturity)
+                    G.add_edge(negative_node, positive_node, weight=-hedge_value, time_to_maturity=time_to_maturity)
+                    
+                    # Update exposures
+                    G.nodes[positive_node]['exposure'] -= hedge_value
+                    G.nodes[negative_node]['exposure'] += hedge_value
+                    
+                    # Set connection flag if only one connection per timestep is allowed
+                    if max_one_connection_per_node:
+                        G.nodes[positive_node]['connected_this_timestep'] = True
+                        G.nodes[negative_node]['connected_this_timestep'] = True
+
+            # Reset the 'connected_this_timestep' attribute for the next timestep
+            if max_one_connection_per_node:
+                for node in G.nodes:
+                    G.nodes[node]['connected_this_timestep'] = False
+                    
+            return G
         else:
-                for j in G.nodes:
-                    if i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
-                        sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
+            # List of nodes with positive and negative exposure respectively
+            positive_exposure_nodes = [node for node in G.nodes if G.nodes[node]['exposure'] > 0]
+            negative_exposure_nodes = [node for node in G.nodes if G.nodes[node]['exposure'] < 0]
 
-                        if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and ((np.abs(sum_of_exposures) < linking_threshold)):
-                            closest_sum = sum_of_exposures
-                            closest_node = j
+            # Randomly pair nodes from each list
+            random.shuffle(positive_exposure_nodes)
+            random.shuffle(negative_exposure_nodes)
 
-
-    
-
-        if closest_node and (np.abs(G.nodes[i]['exposure'])) > swap_exposure_threshold):
-
-            # deviding the exposure singly means one node gets 0 exposure and the other node gets the remaining exposure
-            if mode == 'devide exposure singly':
-
-                # Calculate hedge value based on the smaller absolute exposure of the two nodes
-                hedge_value = min(abs(G.nodes[i]['exposure']), abs(G.nodes[closest_node]['exposure']))
-
-                # Determine the sign of the weight for each edge based on the exposure of the originating node
-                weight_i_to_closest_node = np.sign(G.nodes[i]['exposure']) * hedge_value
-                weight_closest_node_to_i = np.sign(G.nodes[closest_node]['exposure']) * hedge_value
-
-                # Create edges with weights having signs corresponding to the exposure of the originating node
-                G.add_edge(i, closest_node, weight=weight_i_to_closest_node, time_to_maturity=time_to_maturity)
-                G.add_edge(closest_node, i, weight=weight_closest_node_to_i, time_to_maturity=time_to_maturity)
-                G.nodes[i]['exposure'] -= weight_i_to_closest_node
-                G.nodes[closest_node]['exposure'] -= weight_closest_node_to_i
+            for positive_node, negative_node in zip(positive_exposure_nodes, negative_exposure_nodes):
+                # Calculate the hedge value, which is the minimum of the absolute exposures or the swap value
+                hedge_value = min(abs(G.nodes[positive_node]['exposure']), abs(G.nodes[negative_node]['exposure']), swap_exposure_threshold)
                 
+                # Create the swap
+                G.add_edge(positive_node, negative_node, weight=hedge_value, time_to_maturity=time_to_maturity)
+                G.add_edge(negative_node, positive_node, weight=-hedge_value, time_to_maturity=time_to_maturity)
                 
-                # Setting the connection flag for both nodes
-                G.nodes[i]['connected_this_timestep'] = True
-                G.nodes[closest_node]['connected_this_timestep'] = True
+                # Update exposures
+                G.nodes[positive_node]['exposure'] -= hedge_value
+                G.nodes[negative_node]['exposure'] += hedge_value
+
+            return G
+
+    else:
+        
+        if linking_threshold == 0:
+            linking_threshold = sys.float_info.epsilon
 
 
+        for i in G.nodes:
+            closest_sum = np.inf
+            closest_node = None
 
 
+            if max_one_connection_per_node:
 
-            # deviding the exposure equally means that the sum of the exposure of both nodes is evenly distributed to each node.
-            if mode == 'devide exposure equally':
-                # Calculate the average exposure to evenly divide between the two nodes
-                average_exposure = (G.nodes[closest_node]['exposure'] + G.nodes[i]['exposure']) / 2
-                # Determine the weight of the link based on the change in exposure
-                weight = G.nodes[i]['exposure'] - average_exposure
-                # Update exposures and add weighted edges
-                G.nodes[i]['exposure'] = average_exposure
-                G.nodes[closest_node]['exposure'] = average_exposure
-                G.add_edge(i, closest_node, weight=weight, time_to_maturity=time_to_maturity)
-                G.add_edge(closest_node, i, weight=-weight, time_to_maturity=time_to_maturity)
-                
-                # Setting the connection flag for both nodes
-                G.nodes[i]['connected_this_timestep'] = True
-                G.nodes[closest_node]['connected_this_timestep'] = True
+                if not G.nodes[i]['connected_this_timestep']:
+                    for j in G.nodes:
+                        if not G.nodes[j]['connected_this_timestep'] and i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
+                            sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
+                            
+                            if link_threshold_mode == 'hard cutoff':
+                                if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and (np.abs(sum_of_exposures) < linking_threshold):
+                                    closest_sum = sum_of_exposures
+                                    closest_node = j
+                            if link_threshold_mode == 'logistic':
+                                if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and (logistic_threshold_probability(np.abs(sum_of_exposures), linking_threshold) > np.random.random()):
+                                    closest_sum = sum_of_exposures
+                                    closest_node = j
 
-                
-                
-    # Resetting the flag for the next timestep
-                
-    if max_one_connection_per_node:
-        for node in G.nodes:
-            G.nodes[node]['connected_this_timestep'] = False
+            else:
+                    for j in G.nodes:
+                        if i != j and G.nodes[i]['exposure'] * G.nodes[j]['exposure'] < 0:
+                            sum_of_exposures = G.nodes[i]['exposure'] + G.nodes[j]['exposure']
+
+                            if (np.abs(sum_of_exposures) < np.abs(closest_sum)) and ((np.abs(sum_of_exposures) < linking_threshold)):
+                                closest_sum = sum_of_exposures
+                                closest_node = j
+        
+
+            if closest_node and (np.abs(G.nodes[i]['exposure']) > swap_exposure_threshold):
+
+                # deviding the exposure singly means one node gets 0 exposure and the other node gets the remaining exposure
+                if mode == 'divide exposure singly':
+
+                    # Calculate hedge value based on the smaller absolute exposure of the two nodes
+                    hedge_value = min(abs(G.nodes[i]['exposure']), abs(G.nodes[closest_node]['exposure']))
+
+                    # Determine the sign of the weight for each edge based on the exposure of the originating node
+                    weight_i_to_closest_node = np.sign(G.nodes[i]['exposure']) * hedge_value
+                    weight_closest_node_to_i = np.sign(G.nodes[closest_node]['exposure']) * hedge_value
+
+                    # Create edges with weights having signs corresponding to the exposure of the originating node
+                    G.add_edge(i, closest_node, weight=weight_i_to_closest_node, time_to_maturity=time_to_maturity)
+                    G.add_edge(closest_node, i, weight=weight_closest_node_to_i, time_to_maturity=time_to_maturity)
+                    G.nodes[i]['exposure'] -= weight_i_to_closest_node
+                    G.nodes[closest_node]['exposure'] -= weight_closest_node_to_i
+                    
+                    
+                    # Setting the connection flag for both nodes
+                    G.nodes[i]['connected_this_timestep'] = True
+                    G.nodes[closest_node]['connected_this_timestep'] = True
 
 
-                
+                # deviding the exposure equally means that the sum of the exposure of both nodes is evenly distributed to each node.
+                if mode == 'divide exposure equally':
+                    # Calculate the average exposure to evenly divide between the two nodes
+                    average_exposure = (G.nodes[closest_node]['exposure'] + G.nodes[i]['exposure']) / 2
+                    # Determine the weight of the link based on the change in exposure
+                    weight = G.nodes[i]['exposure'] - average_exposure
+                    # Update exposures and add weighted edges
+                    G.nodes[i]['exposure'] = average_exposure
+                    G.nodes[closest_node]['exposure'] = average_exposure
+                    G.add_edge(i, closest_node, weight=weight, time_to_maturity=time_to_maturity)
+                    G.add_edge(closest_node, i, weight=-weight, time_to_maturity=time_to_maturity)
+                    
+                    # Setting the connection flag for both nodes
+                    G.nodes[i]['connected_this_timestep'] = True
+                    G.nodes[closest_node]['connected_this_timestep'] = True
 
-    return G
+                    
+                    
+        # Resetting the flag for the next timestep
+                    
+        if max_one_connection_per_node:
+            for node in G.nodes:
+                G.nodes[node]['connected_this_timestep'] = False
 
 
-def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_node_mode=True):
+        return G
+
+
+def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_node_mode=True, bankruptcy_mode='exposure'):
     """
     Analyze a network of nodes (represented by a graph) to identify and process bankrupt nodes based on a volatility threshold.
     This function updates the exposures of nodes in the network, identifies bankrupt nodes, redistributes their exposures to neighbors,
@@ -334,7 +387,10 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
     # Update exposures based on volatility and identify bankrupt nodes
     for node in G.nodes():
         exposure = G.nodes[node].get('exposure', 0)  # Get exposure from node, defaulting to 0 if not present
-        volatility = exposure * delta_price
+        if bankruptcy_mode == 'exposure':
+            volatility = exposure
+        elif bankruptcy_mode == 'intrest_rate':
+            volatility = exposure * delta_price
         if abs(volatility) > threshold_v:
             bankrupt_nodes.add(node)
             num_bankruptcies += 1
@@ -359,7 +415,9 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     return G, num_bankruptcies
 
-def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0, link_threshold_mode = 'hard cutoff'):
+
+
+def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold=0.5, print_timestep=True, time_to_maturity=0, link_threshold_mode = 'hard cutoff', mode = 'random link logic', bankruptcy_mode = 'exposure', create_new_node_mode = True):
     """
     Simulates a financial network over a specified number of time steps. 
 
@@ -424,11 +482,10 @@ def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_no
 
         # Form links and update exposures based on the current state
         # graph = form_links_and_update_exposures(graph, linking_threshold, swap_exposure_threshold)
-        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity, swap_exposure_threshold=swap_exposure_threshold, link_threshold_mode = link_threshold_mode)
-
+        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity, swap_exposure_threshold=swap_exposure_threshold, link_threshold_mode = link_threshold_mode, mode = mode)
 
         # Check for bankruptcy and update the network
-        graph, bankruptcies_this_step = check_bankruptcy_and_update_network(graph, threshold_v, delta_price_array[step-1])
+        graph, bankruptcies_this_step = check_bankruptcy_and_update_network(G = graph, threshold_v = threshold_v, delta_price = delta_price_array[step-1], create_new_node_mode = create_new_node_mode, bankruptcy_mode = bankruptcy_mode)
 
         # Add the number of bankruptcies this step to the total
         num_bankrupt_agents_total += bankruptcies_this_step
@@ -440,7 +497,7 @@ def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_no
         links_over_time[step] = graph.number_of_edges()
 
         # Update the sum of absolute exposures over time
-        abs_exposures_over_time_summed[step] = np.sum(np.abs(np.array(list(nx.get_node_attributes(graph, 'exposure')))))
+        abs_exposures_over_time_summed[step] = np.sum(np.abs(np.array(list(nx.get_node_attributes(graph, 'exposure').values()))))
 
         # Update exposures over time
         abs_exposure_in_edge_weights = sum_absolute_edge_weights(graph)
@@ -457,7 +514,7 @@ def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_no
         
 
 
-def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list, swap_exposure_threshold_list, time_to_maturity_list, link_threshold_mode_list):
+def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_list, delta_t_list, sigma_exposure_node_list, sigma_intrestrate_list, threshold_v_list, linking_threshold_list, swap_exposure_threshold_list, time_to_maturity_list, link_threshold_mode_list, mode, bankruptcy_mode, create_new_node_mode):
     """
     Runs multiple simulations of a financial network simulator for all combinations of given parameter lists. 
     Each simulation is run a specified number of times ('runs') for each combination of parameters.
@@ -515,7 +572,7 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
         combination_results = []
 
         for _ in range(runs):
-            result = financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold, print_timestep=False, time_to_maturity=time_to_maturity, link_threshold_mode=link_threshold_mode)
+            result = financial_network_simulator(N_agents, num_steps, delta_t, sigma_exposure_node, sigma_intrestrate, threshold_v, linking_threshold, swap_exposure_threshold, print_timestep=False, time_to_maturity=time_to_maturity, link_threshold_mode=link_threshold_mode, mode = mode, bankruptcy_mode = bankruptcy_mode, create_new_node_mode = create_new_node_mode)
             
             graph, abs_exposures_over_time_summed, num_bankrupt_agents_over_time, simulated_prices, links_over_time, total_abs_exposure_in_edge_weights, node_population_over_time = result
 
@@ -965,69 +1022,3 @@ def test_maturity_0_and_exposure_update():
 
     print("All tests passed")
 
-
-
-
-def draw_graph_with_edge_weights(G, pos=None, node_size=400, node_color='skyblue', font_size=10,
-                                 font_weight='bold', arrowstyle='-|>', arrowsize=30, width=2,
-                                 edge_precision=3, offset=0.1, label_offset_x=0.02, label_offset_y=0.05):
-    """
-    Draw a directed graph with edge weights rounded to a specified precision and display weights for bidirectional edges.
-    The weight labels will be placed above or below the edge based on the direction.
-
-    Parameters:
-    G (nx.DiGraph): The directed graph to draw.
-    pos (dict): Position coordinates for nodes for specific layout.
-    node_size (int): Size of nodes.
-    node_color (str): Color of nodes.
-    font_size (int): Font size for node labels.
-    font_weight (str): Font weight for node labels.
-    arrowstyle (str): Style of the arrows.
-    arrowsize (int): Size of the arrows.
-    width (int): Width of edges.
-    edge_precision (int): Decimal precision for edge weights.
-    offset (float): Offset for edge labels to prevent overlap.
-    label_offset_x (float): Horizontal offset for labels in bidirectional edges.
-    label_offset_y (float): Vertical offset for labels in bidirectional edges.
-
-    Returns:
-    None: Draws the graph with matplotlib.
-    """
-
-    if pos is None:
-        pos = nx.spring_layout(G)  # positions for all nodes
-
-    plt.figure(figsize=(12, 8))
-    ax = plt.gca()
-    nx.draw_networkx_nodes(G, pos, node_size=node_size, node_color=node_color)
-    nx.draw_networkx_labels(G, pos, font_size=font_size, font_weight=font_weight)
-
-    # Draw edges with arrows
-    for edge in G.edges():
-        source, target = edge
-        rad = 0.1
-        arrow = FancyArrowPatch(pos[source], pos[target], arrowstyle=arrowstyle,
-                                connectionstyle=f'arc3,rad={rad}', mutation_scale=arrowsize,
-                                lw=width, color='black')
-        ax.add_patch(arrow)
-
-    # Draw edge weights with precision and apply offsets
-    for edge in G.edges():
-        source, target = edge
-        weight = G[source][target]['weight']
-        x_offset = (pos[target][0] - pos[source][0]) * offset
-        y_offset = (pos[target][1] - pos[source][1]) * offset
-        text_pos = ((pos[source][0] + pos[target][0]) / 2 + x_offset,
-                    (pos[source][1] + pos[target][1]) / 2 + y_offset)
-        
-        # Adjust label position based on the direction of the edge
-        if source < target:
-            text_pos = (text_pos[0], text_pos[1] + label_offset_y)
-        else:
-            text_pos = (text_pos[0], text_pos[1] - label_offset_y)
-        
-        ax.text(*text_pos, s=f'{weight:.{edge_precision}f}', horizontalalignment='center',
-                verticalalignment='center', fontsize=font_size, fontweight=font_weight)
-
-    plt.axis('off')
-    plt.show()
