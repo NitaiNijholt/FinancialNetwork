@@ -617,7 +617,7 @@ def multi_parameter_financial_network_simulator(runs, N_agents_list, num_steps_l
 
 
 # Fit the data to a power-law distribution
-def fit_power_law(data: np.ndarray, percentage_of_tail = 10) -> Tuple[float, float]:
+def fit_power_law(data: np.ndarray) -> Tuple[float, float, float]:
     """
     Fit a given dataset to a power-law distribution, plot the Probability Density Function (PDF) 
     for both the empirical data and the power-law fit, and compare it with an exponential distribution.
@@ -630,17 +630,21 @@ def fit_power_law(data: np.ndarray, percentage_of_tail = 10) -> Tuple[float, flo
     data (np.ndarray): A one-dimensional Numpy array of the data to be fitted.
 
     Returns:
-    Tuple[float, float]: A tuple containing the loglikelihood ratio (R) and the p-value (p) of the
-    comparison between the power-law and exponential distributions. If R > 0 and p < 0.05, the data
-    is better explained by a power-law distribution.
+    Tuple[float, float, float]: A tuple containing the power-law exponent (alpha), the loglikelihood 
+    ratio (R), and the p-value (p) of the comparison between the power-law and exponential distributions. 
+    If R > 0 and p < 0.05, the data is better explained by a power-law distribution.
     """
+    # Fit the data to a power-law distribution
     results = powerlaw.Fit(data)
     
+    # Extract the power-law exponent
+    alpha = results.power_law.alpha
+
     # Plot the PDF and compare it to the power-law.
     plt.figure(figsize=(12, 8))
     results.power_law.plot_pdf(color='b', linestyle='--', label='Power-law fit')
     results.plot_pdf(color='b', label='Empirical Data')
-    plt.xlabel('Absolute Difference in Number of Bankrupt Agents')
+    plt.xlabel('Data')
     plt.ylabel('Probability Density Function (PDF)')
     plt.title('PDF and Power-law Fit of the Data')
     plt.legend()
@@ -650,19 +654,17 @@ def fit_power_law(data: np.ndarray, percentage_of_tail = 10) -> Tuple[float, flo
     R, p = results.distribution_compare('power_law', 'exponential', normalized_ratio=True)
     
     # Output the loglikelihood ratio and p-value
+    print(f"Power-law exponent (alpha): {alpha}")
     print(f"Loglikelihood ratio between power law and exponential distribution: {R}")
     print(f"Statistical significance of the fit (p-value): {p}")
 
-    # Conclusion based on the loglikelihood ratio and p-value
+    # Conclusion based on the loglikelihood ratio, p-value, and alpha
     if R > 0 and p < 0.05:
         print("The data follows a power-law distribution better than an exponential distribution.")
-        print("\n")
-
-        print(f"According to Hills estimate looking at {percentage_of_tail} of values in the tail of the distribution, the alpha estimate is is:", hill_estimator(data = data, percentage_of_tail = percentage_of_tail))
     else:
         print("There is not sufficient evidence to conclude that the data follows a power-law distribution better than an exponential distribution.")
 
-    return R, p
+    return alpha, R, p
 
 def draw_graph_with_edge_weights(G, pos=None, node_size=700, node_color='skyblue', font_size=14, 
                                  font_weight='bold', arrowstyle='-|>', arrowsize=20, width=2, 
@@ -800,21 +802,6 @@ def plot_financial_network_results(time_steps, num_bankrupt_agents_over_time, no
     # Adjust layout and show the plot
     plt.tight_layout()
     plt.show()
-
-def hill_estimator(data, percentage_of_tail):
-    """
-    Computes the Hill Estimator for a given one-dimensional dataset.
-    """
-    # Arrange the dataset in ascending order:
-    sorted_data = np.sort(data)
-    total_elements = len(sorted_data)
-    k = int(np.round((percentage_of_tail * total_elements) / 100))
-    log_value_at_n_minus_k = np.log(sorted_data[total_elements - k - 1])
-    log_values_in_tail = np.log(sorted_data[-k:])
-
-    estimated_alpha = k * (np.sum(log_values_in_tail - log_value_at_n_minus_k)) ** -1
-
-    return estimated_alpha
 
 
 
