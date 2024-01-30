@@ -5,8 +5,6 @@ import random
 import math
 import sys
 import os
-import ast
-import glob
 import time
 import datetime
 import pickle
@@ -85,7 +83,7 @@ def generate_exposures(N, mu=0, sigma=1):
     Returns:
     np.array: A numpy array representing the exposures of the agents.
     """
-    return np.random.normal(-1, 1, N)
+    return np.random.normal(0, 1, N)
 
 
 def create_directional_graph(N_Nodes, edges=None):
@@ -173,7 +171,7 @@ def simulate_brownian_motion_one_step(exposures, delta_t, sigma):
     updated_exposures = exposures + increments
     return updated_exposures
 
-def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'random link logic', max_one_connection_per_node=False, swap_exposure_threshold=0, time_to_maturity=0, link_threshold_mode = 'hard cutoff', link_formation_probability=0.5) -> nx.DiGraph:
+def form_links_and_update_exposures(G: nx.DiGraph, linking_threshold: float, mode = 'random link logic', max_one_connection_per_node=False, swap_exposure_threshold=0, time_to_maturity=0, link_threshold_mode = 'hard cutoff') -> nx.DiGraph:
     """
     This function forms links between nodes in a directed graph based on the nodes' exposure values and a specified linking threshold.
     It also updates the exposure values of these nodes according to the linking mode.
@@ -388,7 +386,7 @@ def check_bankruptcy_and_update_network(G, threshold_v, delta_price, create_new_
 
     # Update exposures based on volatility and identify bankrupt nodes
     for node in G.nodes():
-        exposure = G.nodes[node].get('exposure', 0)  # Get exposure from node, defaulting to 0 if not present
+        exposure = G.nodes[node].get('exposure', 1)  # Get exposure from node, defaulting to 1 if not present
         if bankruptcy_mode == 'exposure':
             volatility = exposure
         elif bankruptcy_mode == 'intrest_rate':
@@ -484,7 +482,7 @@ def financial_network_simulator(N_agents, time_steps, delta_t, sigma_exposure_no
 
         # Form links and update exposures based on the current state
         # graph = form_links_and_update_exposures(graph, linking_threshold, swap_exposure_threshold)
-        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity, swap_exposure_threshold=swap_exposure_threshold, link_threshold_mode = link_threshold_mode, mode = mode)
+        graph = form_links_and_update_exposures(graph, linking_threshold, time_to_maturity=time_to_maturity, swap_exposure_threshold=swap_exposure_threshold, link_threshold_mode = link_threshold_mode, mode = mode,)
 
         # Check for bankruptcy and update the network
         graph, bankruptcies_this_step = check_bankruptcy_and_update_network(G = graph, threshold_v = threshold_v, delta_price = delta_price_array[step-1], create_new_node_mode = create_new_node_mode, bankruptcy_mode = bankruptcy_mode)
@@ -1024,124 +1022,3 @@ def test_maturity_0_and_exposure_update():
 
     print("All tests passed")
 
-def get_statistics(pattern : str = './200_2000_*.csv'):
-
-    '''
-    To get statistics of simulation results to plot.
-    '''
-
-    def safe_literal_eval(s):
-        try:
-            return ast.literal_eval(s)
-        except (ValueError, SyntaxError):
-            return np.nan
-
-    def calculate_average_list(column):
-        return column.apply(safe_literal_eval).apply(lambda x: np.mean(x) if isinstance(x, list) and len(x) > 0 else np.nan)
-
-    def calculate_std_list(column):
-        return column.apply(safe_literal_eval).apply(lambda x: np.std(x) if isinstance(x, list) and len(x) > 0 else np.nan)
-    
-    def calculate_elementwise_division(a, b):
-        return [i/j for i, j in zip(a, b)]
-
-
-    all_results = pd.DataFrame()
-    all_stds = pd.DataFrame()
-
-    for filepath in glob.glob(pattern):
-        df = pd.read_csv(filepath)
-
-        df['Default Prob'] = df.apply(
-        lambda row: calculate_elementwise_division(
-            safe_literal_eval(row['Number of Bankrupt Agents Over Time']),
-            safe_literal_eval(row['Node Population Over Time'])
-        ), axis=1)
-
-        # print(df['Default Prob'])
-    
-        averages_df = pd.DataFrame()
-        stds_df = pd.DataFrame()
-
-        for column in df.columns[1:-1]:
-            avg = calculate_average_list(df[column])
-            std = calculate_std_list(df[column])
-            averages_df[column] = avg
-            stds_df[column] = std
-
-        
-        averages_df['Default Prob'] = df['Default Prob'].apply(lambda x: np.mean(x) if isinstance(x, list) and len(x) > 0 else np.nan)
-        stds_df['Default Prob'] = df['Default Prob'].apply(lambda x: np.std(x) if isinstance(x, list) and len(x) > 0 else np.nan)
-        
-        averages = averages_df.mean()
-        stds = stds_df.mean()
-
-        averages_df_overall = pd.DataFrame([averages])
-        stds_df_overall = pd.DataFrame([stds])
-
-        filename = os.path.basename(filepath).replace('.csv', '')
-        parts = filename.split('_')
-        N_agents = int(parts[0])
-        num_steps = int(parts[1])
-        delta_t = float(parts[2])
-        sigma_exposure_node = float(parts[3])
-        sigma_intrestrate = float(parts[4])
-        threshold_v = float(parts[5])
-        linking_threshold = float(parts[6])
-
-        para_df = pd.DataFrame({
-        'N_agents': [N_agents],
-        'num_steps': [num_steps],
-        'delta_t': [delta_t],
-        'sigma_exposure_node': [sigma_exposure_node],
-        'sigma_intrestrate': [sigma_intrestrate],
-        'threshold_v': [threshold_v],
-        'linking_threshold': [linking_threshold]
-    })
-
-        temp_df = pd.concat([averages_df_overall, para_df], axis=1)
-
-        all_results = pd.concat([all_results, temp_df], ignore_index=True)
-        all_stds = pd.concat([all_stds, stds_df_overall], ignore_index=True)
-
-    return all_results, all_stds
-
-
-
-def plot_simu_2D_results(pattern : str = './200_2000_*.csv', x_axis_name : str = 'sigma_intrestrate',
-y_axis_name : str = 'Default Prob'):
-    
-    all_results, all_stds = get_statistics(pattern = pattern)
-    plt.figure(figsize=(10, 6))
-
-    plt.scatter(all_results[x_axis_name], all_results[y_axis_name])
-
-    for x, y, yerr in zip(all_results[x_axis_name], all_results[y_axis_name], all_stds[y_axis_name]):
-        plt.vlines(x, y - yerr, y + yerr)
-        plt.hlines(y - yerr, x - 0.5, x + 0.5)
-        plt.hlines(y + yerr, x - 0.5, x + 0.5)
-
-    plt.xlabel(x_axis_name)
-    plt.ylabel(y_axis_name)
-    plt.title(f'{x_axis_name} vs. {y_axis_name}', fontsize=16)
-
-    plt.show()
-
-
-
-def plot_simu_3D_results(pattern : str = './200_2000_*.csv', x_axis_name : str = 'sigma_intrestrate',
-y_axis_name : str = 'Total Absolute Exposure in Edge Weights', z_axis_name : str = 'Default Prob'):
-    
-    all_results, _ = get_statistics(pattern = pattern)
-
-    fig = plt.figure(figsize=(12, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    surf = ax.plot_trisurf(all_results[x_axis_name], all_results[y_axis_name], all_results[z_axis_name])
-
-    ax.set_xlabel(x_axis_name)
-    ax.set_ylabel(y_axis_name)
-    ax.set_zlabel(z_axis_name)
-    ax.set_title(f'{x_axis_name} vs.{y_axis_name} vs. {z_axis_name}', fontdict={'fontsize': 14})
-
-    plt.show()
