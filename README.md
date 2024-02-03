@@ -4,7 +4,7 @@ Repo for the University of Amsterdam Complex System Simulation Project 2024
 
 
 Team 11: 
-Raymon Zhang  - 
+Raymon Zhang  - 14865904
 Sheng Gao - 
 Meiqi Sun
 Nitai Nijholt - 12709018,
