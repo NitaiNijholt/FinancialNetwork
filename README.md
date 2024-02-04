@@ -5,8 +5,8 @@ Repo for the University of Amsterdam Complex System Simulation Project 2024
 
 Team 11: 
 Raymon Zhang  - 14865904
-Sheng Gao - 
-Meiqi Sun
+Sheng Gao - 14904136
+Meiqi Sun- 14572737
 Nitai Nijholt - 12709018,
 
 Teacher: 
