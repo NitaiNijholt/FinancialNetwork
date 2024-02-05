@@ -92,8 +92,11 @@ This project implemented Drupsteens 2019 [1] model of default propagation on fin
 ## References
 ● [1] Caccioli, F., Barucca, P. & Kobayashi, T. Network models of financial systemic risk: a review. J Comput Soc Sc 1, 81–114 (2018).
 https://doi.org/10.1007/s42001-017-0008-3
+
 ● [2] Drupsteen D. (2019) Self-organized criticality and synchronisation in an interest rate swap market model [Unpublished MSc Thesis]. University of Amsterdam
+
 ● [3] Laeven, L., & Valencia, F. (2013). Systemic banking crises database. IMF Economic Review, 61(2), 225-270.
+
 ● [4] Federal Reserve Bank of St. Louis, 10-Year Treasury Constant Maturity Minus 2-Year Treasury Constant Maturity [T10Y2Y], retrieved from
 FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/T10Y2Y, January 31, 2024.
 
