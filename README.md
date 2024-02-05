@@ -1,6 +1,6 @@
 # Default Propagation on Financial Networks
 
-Repo for the University of Amsterdam Complex System Simulation Project 2024
+Repo for the University of Amsterdam Complex System Simulation Project 2024, simulating default propagation on financial networks using and extending Drupsteens 2019 model [2].
 
 
 Team 11: 
@@ -11,54 +11,89 @@ Nitai Nijholt - 12709018,
 
 Teacher: 
 Professor Rick Quax
+Mr. Dhruv Mittal
 
 ## Installation & Run
 
 1. Clone the repository.
 2. Install the requirements: `pip install -r requirements.txt`.
-3. Run main_final.ipynb
+3. Run downloader.py
+4. Run Results_and_main_plots.ipynb
+5. Run Validation.ipynb
 
 
 ## Structure
 
-The FinancialNetwork folder contains all the code of the analysis.
+The FinancialNetwork folder contains all the code pertaining to the project
 
     .
     ├── requirements.txt
     ├── README.md
-    ├── main_final.ipynb 
-    ├── custom_functions.py
-    ├── tests.py
+    ├── Results_and_main_plots.ipynb 
+    ├── custom_functions_final.py
+    ├── Testing_of_functions_notebook.py
+    ├── downloader.py
+    ├── plot_node_thresholding_function.ipynb
+    ├── Validation.ipynb
+    ├── main_runs.ipynb
+    ├── inital_explorations.ipynb
+    ├── Includes a simple model description and some exploritory model runs.
+    ├── Presentation - Default propagation on Financial Networks.pdf
+    ├── Data (created by running downloader.py)
     
     
-Also, various dataframes are saved as .csv in main folders as the running of main_final.ipynb
+    
+Mind that various .csv's will be saved if main_runs.ipynb is ran
         
 
 ## Project summary
 
-
-
+This project implemented Drupsteens 2019 [1] model of default propagation on financial networks in a bidirecational graph, where nodes form links to hedge exposure (a brownian motion process) with other nodes which have opposite exposure to avoid bankruptcy caused by exceeding an exposure threshold. This project extended Drupseens model with preferential node linking and exposure to an external intrest rate time series and compared this to Drupsteens original model in which linking happens randomly and the bankruptcy threshold considers node exposure only. Finding were as follows for our model: bankruptcy default distribution was found to be powerlaw, with alpha exponents between 2 and 3 indicating a finite mean but infinite variance which points towards bankruptcy events at all scales and possible self organized criticality. Average default size was found to scale linearly with system size. The interaction term between total link exposure and default probability was, against expectations, not found to be significant. However, when fitting a VAR model bankruptcy probabilty was significant positive influence of total absolute exposure stored in the links in 4/5 cases, with one case being vice versa. Both models were fit with a emperical standard deviation from federal reserve 10 year treasury data [4] and default probabilities were compared against IMF default data [3] over the period 1970-2010, but the distributions of model (both Drupsteens and ours) proved significantly different from the emperical data according to a KS test. Limitation of the research were limited simulation runs (5-15), calling into question the obtained statistical significance as well as implausible alpha exponents (range 2-9, were we found 2-55) on Drupsteens model in our results, although note different parameters were used than in Drupsteens original paper. Also the preferential linking and exposure to an external asset were always used together, meaning we leave isolated effects of these mechanisms for future research. Adding preferential linking to financial network and explore adding exposure to an external asset could represent a more realistic model of financial networks, although single asset exposure is still fairly simplistic. To improve generalizability to real financial networks, future research could explore include exposure more than one asset and extend the model so nodes can form more than 2 links to closer aproach the number of contracts between financial institutions in the real world.
 
 # Files
 
 * `README.md`
-> Running instructions 
+> Provides running instructions and a short project description.
 
-* `requirements.txt `
-> List of required packages which can be used to pip install them.
+* `requirements.txt`
+> Lists all dependencies needed to run the project, installable via pip.
 
-* `main_final.ipynb `
-> This file contains the code for running the simulations and does the analysis on simulation results
+* `Results_and_main_plots.ipynb`
+> Analyzes simulation results from the 'Data' folder.
 
-* `custom_functions.py`
-> This file contains custom functions
+* `custom_functions_final.py`
+> Contains custom functions used in the project.
 
-* `tests.py`
-> This contains tests of the custom functions
+* `Testing_of_functions_notebook.py`
+> Contains tests for the model functions and a test run.
 
+* `downloader.py`
+> A script to download necessary data for the simulations.
+
+* `plot_node_thresholding_function.ipynb`
+> Analyzes the thresholding function of nodes within the network.
+
+* `inital_explorations.ipynb`
+> Includes a simple model description and some exploritory model runs.
+
+* `Validation.ipynb`
+> Validates the simulation results against emperical data from the IMF[3] and Federal reserve [4].
+
+* `main_runs.ipynb`
+> Main script for running simulation scenarios and generating data outputs.
+
+* `Presentation - Default propagation on Financial Networks.pdf`
+> Presentation slides summarizing project findings and methodologies.
+
+* `Data`
+> Directory for storing data files generated by or used in the project, created after running downloader.py
 
 
 ## References
-
-- Drupsteen D. (2019) Self-organized criticality and synchronisation in an interest rate swap market model [Unpublished MSc Thesis]. University of Amsterdam
+● [1] Caccioli, F., Barucca, P. & Kobayashi, T. Network models of financial systemic risk: a review. J Comput Soc Sc 1, 81–114 (2018).
+https://doi.org/10.1007/s42001-017-0008-3
+● [2] Drupsteen D. (2019) Self-organized criticality and synchronisation in an interest rate swap market model [Unpublished MSc Thesis]. University of Amsterdam
+● [3] Laeven, L., & Valencia, F. (2013). Systemic banking crises database. IMF Economic Review, 61(2), 225-270.
+● [4] Federal Reserve Bank of St. Louis, 10-Year Treasury Constant Maturity Minus 2-Year Treasury Constant Maturity [T10Y2Y], retrieved from
+FRED, Federal Reserve Bank of St. Louis; https://fred.stlouisfed.org/series/T10Y2Y, January 31, 2024.
 
